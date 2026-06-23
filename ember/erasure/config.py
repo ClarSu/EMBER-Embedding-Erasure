@@ -66,6 +66,8 @@ class SNMFGridConfig:
     feature_source: str = "all"
     in_deltas: List[float] = field(default_factory=lambda: [1.0, 4.0, 7.0, 10.0])
     out_deltas: List[float] = field(default_factory=lambda: [1.0, 4.0, 7.0, 10.0])
+    layer_ranges_in: Optional[List[List[int]]] = None
+    layer_ranges_out: Optional[List[List[int]]] = None
     dtype: str = "bf16"
 
 
@@ -74,6 +76,7 @@ class RMUGridConfig:
     lr_grid: Optional[List[float]] = None
     alpha_grid: Optional[List[float]] = None
     steering_grid: Optional[List[float]] = None
+    update_settings: Optional[List[Dict[str, Any]]] = None
     batch_size: int = 4
     max_num_batches: int = 150
     min_len: int = 50
@@ -85,6 +88,7 @@ class CRISPGridConfig:
     k_features_grid: List[int] = field(default_factory=lambda: [5, 10, 20])
     alpha_grid: List[float] = field(default_factory=lambda: [5.0, 10.0, 20.0, 50.0])
     lr_grid: List[float] = field(default_factory=lambda: [5e-5, 1e-4, 5e-4])
+    layer_ranges: Optional[List[List[int]]] = None
     batch_size: int = 16
     num_epochs: int = 2
     lora_batch_size: int = 1
@@ -121,6 +125,7 @@ class EvalConfig:
     min_mmlu: float = 0.7
     max_qa_acc: float = 0.6
     alpaca_batch_size: Optional[int] = None
+    skip_llm_judge: bool = False
 
 
 @dataclass
@@ -128,6 +133,13 @@ class RelearningConfig:
     enabled: bool = True
     max_paragraphs: int = 100
     csv_path: str = "data/relearn_paragraphs.json"
+
+
+@dataclass
+class CheckpointConfig:
+    """Optional export of the post-unlearning model weights."""
+    enabled: bool = False
+    root: str = "unlearned_checkpoints"
 
 
 # ========================================================================== #
@@ -155,6 +167,7 @@ class RunConfig:
     selection: SelectionConfig = field(default_factory=SelectionConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
     relearning: RelearningConfig = field(default_factory=RelearningConfig)
+    checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
 
     snmf: SNMFGridConfig = field(default_factory=SNMFGridConfig)
     rmu: RMUGridConfig = field(default_factory=RMUGridConfig)
@@ -185,6 +198,19 @@ class RunConfig:
             raise ValueError("Use at most one of selection.neurons_thresh / coverage_thresh")
         if self.method == "ember" and self.ember_step.enabled:
             self.ember_step.enabled = False
+        if self.method == "crisp" and self.crisp.layer_ranges is not None:
+            from ember.erasure.methods.crisp import validate_layer_ranges
+            validate_layer_ranges(self.crisp.layer_ranges, self.model_name)
+        if self.method == "rmu" and self.rmu.update_settings is not None:
+            from ember.erasure.methods.rmu import validate_update_settings
+            validate_update_settings(self.rmu.update_settings, self.model_name)
+        if self.method == "snmf":
+            from ember.erasure.methods.snmf import validate_snmf_layer_ranges
+            validate_snmf_layer_ranges(
+                self.snmf.layer_ranges_in,
+                self.snmf.layer_ranges_out,
+                self.model_name,
+            )
 
 
 # ========================================================================== #
@@ -224,6 +250,7 @@ def load_yaml(path: Path) -> RunConfig:
         "selection": SelectionConfig,
         "eval": EvalConfig,
         "relearning": RelearningConfig,
+        "checkpoint": CheckpointConfig,
         "snmf": SNMFGridConfig,
         "rmu": RMUGridConfig,
         "crisp": CRISPGridConfig,
@@ -296,6 +323,6 @@ __all__ = [
     "EMBERStepConfig", "SelectionConfig",
     "SNMFGridConfig", "RMUGridConfig", "CRISPGridConfig", "EMBERConfig",
     "PISCESGridConfig",
-    "EvalConfig", "RelearningConfig", "RunConfig",
+    "EvalConfig", "RelearningConfig", "CheckpointConfig", "RunConfig",
     "load_yaml", "build_parser", "parse_args",
 ]
