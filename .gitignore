@@ -38,3 +38,6 @@ notebooks/.ipynb_checkpoints/
 # Editor
 .vscode/
 .idea/
+
+slurm_outputs/
+slurm_errors/
