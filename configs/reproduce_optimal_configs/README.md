@@ -35,6 +35,33 @@ python -m ember.run_erasure \
 
 Use `--train-eval open` for PISCES configs.
 
+## Run all configs on SLURM
+
+Generate configs and the job manifest (if not already present):
+
+```bash
+python scripts/generate_reproduce_configs.py
+```
+
+Submit one GPU array task per config (24 jobs by default):
+
+```bash
+sbatch slurm/reproduce_unlearning.slurm
+```
+
+Run a single config (example: first manifest entry):
+
+```bash
+sbatch --array=0 slurm/reproduce_unlearning.slurm
+```
+
+The manifest at `configs/reproduce_optimal_configs/jobs.manifest.tsv` lists
+`config<TAB>concept<TAB>train_eval` per line. Adjust `#SBATCH --array=0-23` in
+`slurm/reproduce_unlearning.slurm` if the manifest length changes.
+
+Logs: `slurm_outputs/reproduce_unlearning/` and `slurm_errors/reproduce_unlearning/`.
+Checkpoints: `unlearned_checkpoints/<method>/<model>/<concept>/`.
+
 ## Method-specific pinning
 
 The standard erasure pipelines sweep some choices via hard-coded grids. For reproduction we added config fields to pin the winning combination directly.
