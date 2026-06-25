@@ -22,6 +22,8 @@ def get_baselines(
         required_concepts: Optional[List[str]] = None,
         baseline_out_dir: Optional[Path] = None,
         skip_llm_judge: bool = False,
+        data_source: str = "ember",
+        wmdp_data_root: str = "data/wmdp",
 ) -> Dict[str, Any]:
     """Compute (or read from cache) the per-mode baseline metrics."""
     _check_mode(mode)
@@ -35,6 +37,8 @@ def get_baselines(
         alpaca_batch_size=alpaca_batch_size,
         required_concepts=required_concepts,
         skip_llm_judge=skip_llm_judge,
+        data_source=data_source,
+        wmdp_data_root=wmdp_data_root,
     )
 
 
@@ -55,6 +59,8 @@ def evaluate_model(
         eval_simdom: bool = True,
         precomputed_metrics: Optional[Dict[str, float]] = None,
         skip_llm_judge: bool = False,
+        data_source: str = "ember",
+        wmdp_data_root: str = "data/wmdp",
 ) -> Tuple[Dict[str, float], Dict[str, List[Dict[str, Any]]]]:
     """Evaluate the currently mutated model and return (metrics, records)."""
     _check_mode(mode)
@@ -74,6 +80,8 @@ def evaluate_model(
         eval_simdom=eval_simdom,
         precomputed_metrics=precomputed_metrics,
         skip_llm_judge=skip_llm_judge,
+        data_source=data_source,
+        wmdp_data_root=wmdp_data_root,
     )
 
     normalized = ember_io.normalize_metrics_for_mode(mode, raw_metrics)

@@ -311,6 +311,8 @@ def get_baselines_for_mode(
         alpaca_batch_size: int = 32,
         required_concepts: Optional[List[str]] = None,
         skip_llm_judge: bool = False,
+        data_source: str = "ember",
+        wmdp_data_root: str = "data/wmdp",
 ) -> Dict[str, Any]:
     """Compute (or read) baselines for ``mode``.
 
@@ -331,9 +333,28 @@ def get_baselines_for_mode(
 
     tm = ensure_wrapped_model(model, tokenizer)
 
+    use_wmdp = data_source.lower() == "wmdp"
+    if use_wmdp and is_open:
+        raise ValueError(
+            "data.source='wmdp' requires --train-eval mc (WMDP uses logits MCQ eval)"
+        )
+
     qa_base: Optional[BaselineResult] = None
     sim_base: Optional[BaselineResult] = None
-    if not (skip_llm_judge and is_open):
+    wmdp_qa_per: Dict[str, Any] = {}
+    wmdp_sim_per: Dict[str, Any] = {}
+
+    if use_wmdp:
+        from ember.evals.wmdp_baselines import compute_wmdp_baselines
+        wmdp_cached = compute_wmdp_baselines(
+            tm, mode,
+            data_root=wmdp_data_root,
+            baseline_out_dir=baseline_out_dir,
+            required_concepts=required_concepts,
+        )
+        wmdp_qa_per = wmdp_cached.get("qa_per_concept", {})
+        wmdp_sim_per = wmdp_cached.get("simdom_per_concept", {})
+    elif not (skip_llm_judge and is_open):
         qa_base = compute_or_read_baseline(
             tm, f"qa_{split}_{mode_suffix}",
             out_dir=out_dir_str, required_concepts=required_concepts,
@@ -360,10 +381,14 @@ def get_baselines_for_mode(
     out: Dict[str, Any] = {
         "mmlu_acc": float(mmlu_base.metrics.get("accuracy_generation", 0.0)),
     }
-    if qa_base is not None:
-        out["qa_per_concept"] = qa_base.meta.get("per_concept", {})
-    if sim_base is not None:
-        out["simdom_per_concept"] = sim_base.meta.get("per_concept", {})
+    if use_wmdp:
+        out["qa_per_concept"] = wmdp_qa_per
+        out["simdom_per_concept"] = wmdp_sim_per
+    else:
+        if qa_base is not None:
+            out["qa_per_concept"] = qa_base.meta.get("per_concept", {})
+        if sim_base is not None:
+            out["simdom_per_concept"] = sim_base.meta.get("per_concept", {})
     if alpaca_base is not None:
         out["alpaca_instr"] = float(
             alpaca_base.metrics.get("mean_instruct_score", 0.0))

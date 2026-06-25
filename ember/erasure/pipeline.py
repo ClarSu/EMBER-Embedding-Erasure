@@ -164,6 +164,25 @@ def _hp_key(hp: Dict[str, Any], key_cols: List[str]) -> Tuple[Any, ...]:
 # Step 0: baselines                                                           #
 # ========================================================================== #
 
+def _data_eval_kwargs(cfg: RunConfig) -> Dict[str, str]:
+    return {
+        "data_source": cfg.data.source,
+        "wmdp_data_root": cfg.data.wmdp.data_root,
+    }
+
+
+def _is_wmdp(cfg: RunConfig) -> bool:
+    return cfg.data.source.lower() == "wmdp"
+
+
+def _test_modes(cfg: RunConfig) -> List[str]:
+    """Final-test / test-baseline modes. WMDP has no open-QA eval."""
+    modes = ["test_mc", "test_open"]
+    if _is_wmdp(cfg):
+        modes = [m for m in modes if not m.endswith("_open")]
+    return modes
+
+
 def _compute_all_baselines(cfg: RunConfig, hf_model: Any, tokenizer: Any,
                            alpaca_bs: int) -> Dict[str, Dict[str, Any]]:
     train_mode = f"train_{cfg.train_eval}"
@@ -177,10 +196,11 @@ def _compute_all_baselines(cfg: RunConfig, hf_model: Any, tokenizer: Any,
             alpaca_batch_size=alpaca_bs,
             required_concepts=cfg.concepts,
             skip_llm_judge=cfg.eval.skip_llm_judge,
+            **_data_eval_kwargs(cfg),
         )
 
     if cfg.run_tests_after_train:
-        for tm in ("test_mc", "test_open"):
+        for tm in _test_modes(cfg):
             with log.stage(f"baseline:{tm}"):
                 out[tm] = eval_mod.get_baselines(
                     hf_model, tm,
@@ -189,6 +209,7 @@ def _compute_all_baselines(cfg: RunConfig, hf_model: Any, tokenizer: Any,
                     alpaca_batch_size=alpaca_bs,
                     required_concepts=cfg.concepts,
                     skip_llm_judge=cfg.eval.skip_llm_judge,
+                    **_data_eval_kwargs(cfg),
                 )
 
     torch.cuda.empty_cache()
@@ -310,6 +331,7 @@ def _run_method_grid(method: methods_base.Method, cfg: RunConfig,
                             tokenizer=tokenizer,
                             alpaca_batch_size=alpaca_bs,
                             skip_llm_judge=cfg.eval.skip_llm_judge,
+                            **_data_eval_kwargs(cfg),
                             **method.grid_eval_kwargs(cfg),
                         )
                 _t_add(concept, "grid", _t["elapsed"])
@@ -422,6 +444,7 @@ def _run_validate_topk(method: methods_base.Method, cfg: RunConfig,
                             tokenizer=tokenizer,
                             alpaca_batch_size=alpaca_bs,
                             skip_llm_judge=cfg.eval.skip_llm_judge,
+                            **_data_eval_kwargs(cfg),
                         )
                 _t_add(concept, "validate", _t["elapsed"])
 
@@ -584,8 +607,9 @@ def _run_final_test(method: methods_base.Method, cfg: RunConfig,
                 _drop_concept_rows(final_mc, concept)
                 _drop_concept_rows(final_open, concept)
 
-                for mode, csv_path in (("test_mc", final_mc),
-                                       ("test_open", final_open)):
+                test_csv = {"test_mc": final_mc, "test_open": final_open}
+                for mode in _test_modes(cfg):
+                    csv_path = test_csv[mode]
                     with Timer() as _te:
                         if skip_eval:
                             log.info("skipping %s eval (no-op HP); writing zeros", mode)
@@ -602,10 +626,11 @@ def _run_final_test(method: methods_base.Method, cfg: RunConfig,
                                 eval_alpaca=not cfg.eval.skip_llm_judge,
                                 min_mmlu=None,
                                 max_qa_acc=None,
-                                tokenizer=tokenizer,
-                                alpaca_batch_size=alpaca_bs,
-                                skip_llm_judge=cfg.eval.skip_llm_judge,
-                            )
+                            tokenizer=tokenizer,
+                            alpaca_batch_size=alpaca_bs,
+                            skip_llm_judge=cfg.eval.skip_llm_judge,
+                            **_data_eval_kwargs(cfg),
+                        )
                     ft_secs += _te["elapsed"]
                     relearn_col = ("relearning_qa_mc" if mode == "test_mc"
                                    else "relearning_qa_open")
@@ -675,6 +700,7 @@ def _run_relearning_and_update(
             min_mmlu=None, max_qa_acc=None,
             tokenizer=tok, alpaca_batch_size=alpaca_bs,
             skip_llm_judge=cfg.eval.skip_llm_judge,
+            **_data_eval_kwargs(cfg),
         )
         return metrics
 
@@ -690,7 +716,7 @@ def _run_relearning_and_update(
     )
 
     relearned_qa: Dict[str, float] = {}
-    for mode in ("test_mc", "test_open"):
+    for mode in _test_modes(cfg):
         log.info("relearning post-eval: %s", mode)
         metrics, _ = eval_mod.evaluate_model(
             model_to_relearn, baselines=baselines[mode],
@@ -699,13 +725,16 @@ def _run_relearning_and_update(
             min_mmlu=None, max_qa_acc=None,
             tokenizer=tokenizer, alpaca_batch_size=alpaca_bs,
             skip_llm_judge=cfg.eval.skip_llm_judge,
+            **_data_eval_kwargs(cfg),
         )
         relearned_qa[mode] = float(metrics.get("qa_acc", float("nan")))
 
-    for csv_path, col, mode_key in (
-        (final_mc, "relearning_qa_mc", "test_mc"),
-        (final_open, "relearning_qa_open", "test_open"),
-    ):
+    relearn_cols = {
+        "test_mc": (final_mc, "relearning_qa_mc"),
+        "test_open": (final_open, "relearning_qa_open"),
+    }
+    for mode_key in _test_modes(cfg):
+        csv_path, col = relearn_cols[mode_key]
         df = io.read_csv_safe(csv_path)
         if df.empty or "concept" not in df.columns:
             continue
